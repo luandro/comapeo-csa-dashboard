@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check JavaScript syntax
+        run: node --check app.js
+
+      - name: Check fetch script syntax
+        run: bash -n scripts/fetch-data.sh
+
+      - name: Check Python syntax
+        run: python3 -m py_compile tools/gen_data.py
+
+      - name: Privacy gate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          violations=""
+          add_hits() {
+            local label="$1"
+            local hits="$2"
+            local hit
+            while IFS= read -r hit; do
+              if [[ -n "$hit" ]]; then
+                hit="${hit#./}"
+                violations+="${label}: ${hit}"$'\n'
+              fi
+            done <<< "$hits"
+          }
+
+          # Split the prefix so this gate does not match its own source.
+          secret_pattern='37D''256[A-F0-9]*'
+          secret_hits="$(grep -rlE "$secret_pattern" --include='*' . \
+            --exclude-dir=.git --exclude-dir=node_modules || true)"
+          add_hits "Secret pattern" "$secret_hits"
+
+          tracked_files="$(git ls-files)"
+          env_hits="$(grep -E '(^|/)\.env($|\.)' <<< "$tracked_files" || true)"
+          add_hits "Tracked environment file" "$env_hits"
+
+          private_data_hits="$(grep -E '^data/(raw|photos)/.+' <<< "$tracked_files" || true)"
+          add_hits "Tracked private data" "$private_data_hits"
+
+          generated_data_hits="$(grep -E '(^|/)data\.js$|^talhoes/.*\.geojson$' <<< "$tracked_files" || true)"
+          add_hits "Tracked generated or farm data" "$generated_data_hits"
+
+          coordinate_hits="$(grep -lE -- '-45\.8[0-9]|-23\.0[0-9]' app.js index.html style.css || true)"
+          add_hits "Hardcoded farm coordinates" "$coordinate_hits"
+
+          if [[ -n "$violations" ]]; then
+            printf 'Privacy gate failed:\n%s' "$violations" >&2
+            exit 1
+          fi
+
+      - name: Summary
+        run: |
+          echo "CI passed: syntax OK, no private data detected."
