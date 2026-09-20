@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#13271d">
+    <meta name="description" content="Mapa de cultivo e colheita do Sítio Ecológico — o que está plantado, pronto para colher e a saúde de cada talhão.">
+    <title>Sítio Ecológico — CSA</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='14'%20fill='%2313271d'/%3E%3Cpath%20d='M15%2047C31%2046%2045%2034%2050%2012C54%2034%2043%2051%2023%2051M18%2049C25%2036%2034%2028%2046%2021'%20fill='none'%20stroke='%238daf76'%20stroke-width='5'%20stroke-linecap='round'%20stroke-linejoin='round'/%3E%3C/svg%3E">
+    <link rel="preconnect" href="https://tile.openstreetmap.org">
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.7.1/dist/maplibre-gl.css">
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <div class="dashboard-shell" data-view="map">
+      <header class="map-brand app-brand">
+          <div class="farm-mark" aria-hidden="true">
+            <svg viewBox="0 0 40 40">
+              <path d="M8 31c9-1 18-8 24-22 2 14-5 24-17 24" />
+              <path d="M10 32c4-8 10-13 18-17" />
+            </svg>
+          </div>
+          <div class="title-block">
+            <h1>Sítio Ecológico <span>CSA</span></h1>
+            <p>Mapa de cultivo e colheita</p>
+          </div>
+          <time id="generated-at" class="generated-badge" aria-label="Data de atualização">
+            Carregando dados…
+          </time>
+          <button id="view-toggle" class="view-toggle" type="button" aria-label="Abrir Diário do campo">
+            <svg class="view-toggle-calendar" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 3v3M18 3v3M4 8h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"></path>
+              <path d="M8 12h2M14 12h2M8 16h2M14 16h2"></path>
+            </svg>
+            <svg class="view-toggle-map" viewBox="0 0 24 24" aria-hidden="true" hidden>
+              <path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6Z"></path>
+              <path d="M9 3v15M15 6v15"></path>
+            </svg>
+          </button>
+        </header>
+
+      <main id="map-view" class="map-region primary-view" aria-label="Mapa dos talhões e cultivos">
+        <div id="map" class="map-canvas"></div>
+
+        <details class="map-legend">
+          <summary>Legenda</summary>
+          <div class="legend-content" aria-label="Legenda dos estados de produção">
+            <h2>Produção</h2>
+            <ul>
+              <li><span class="legend-dot status-ready"></span>Pronta para colheita</li>
+              <li><span class="legend-dot status-fruiting"></span>Frutificando</li>
+              <li><span class="legend-dot status-harvested"></span>Colhida recentemente</li>
+              <li><span class="legend-dot status-idle"></span>Não produzindo</li>
+              <li><span class="legend-dot status-other"></span>Outro estado</li>
+            </ul>
+            <p><span class="legend-ring"></span>Atenção à saúde</p>
+          </div>
+        </details>
+      </main>
+
+      <main id="calendar-view" class="calendar-view primary-view" aria-labelledby="calendar-title" hidden inert aria-hidden="true">
+        <header class="calendar-header">
+          <div class="calendar-heading">
+            <p class="section-kicker">Atividade registrada</p>
+            <h2 id="calendar-title" tabindex="-1">Diário do campo</h2>
+          </div>
+          <div class="calendar-toolbar" aria-label="Navegação do calendário">
+            <button id="calendar-prev" class="calendar-nav-button" type="button" aria-label="Mês anterior">‹</button>
+            <h3 id="calendar-month-label" aria-live="polite" aria-atomic="true"></h3>
+            <button id="calendar-next" class="calendar-nav-button" type="button" aria-label="Próximo mês">›</button>
+            <button id="calendar-today" class="calendar-today" type="button">Hoje</button>
+          </div>
+          <div class="calendar-summary" aria-label="Resumo do mês">
+            <div>
+              <span class="calendar-summary-label">Colheitas</span>
+              <strong id="calendar-harvest-total">—</strong>
+            </div>
+            <div>
+              <span class="calendar-summary-label">Atividade</span>
+              <strong id="calendar-observation-total">—</strong>
+            </div>
+          </div>
+        </header>
+
+        <div class="calendar-grid-wrap">
+          <table id="calendar-grid" class="calendar-grid" role="grid" aria-labelledby="calendar-title calendar-month-label">
+            <caption class="sr-only">Atividades registradas por dia no campo</caption>
+            <thead>
+              <tr role="row">
+                <th role="columnheader" scope="col"><span aria-hidden="true">Dom</span><span class="sr-only">Domingo</span></th>
+                <th role="columnheader" scope="col"><span aria-hidden="true">Seg</span><span class="sr-only">Segunda-feira</span></th>
+                <th role="columnheader" scope="col"><span aria-hidden="true">Ter</span><span class="sr-only">Terça-feira</span></th>
+                <th role="columnheader" scope="col"><span aria-hidden="true">Qua</span><span class="sr-only">Quarta-feira</span></th>
+                <th role="columnheader" scope="col"><span aria-hidden="true">Qui</span><span class="sr-only">Quinta-feira</span></th>
+                <th role="columnheader" scope="col"><span aria-hidden="true">Sex</span><span class="sr-only">Sexta-feira</span></th>
+                <th role="columnheader" scope="col"><span aria-hidden="true">Sáb</span><span class="sr-only">Sábado</span></th>
+              </tr>
+            </thead>
+            <tbody id="calendar-days"></tbody>
+          </table>
+        </div>
+
+        <div class="calendar-legend" aria-label="Legenda das atividades">
+          <span><i class="calendar-kind calendar-kind-harvest"></i>Colheita</span>
+          <span><i class="calendar-kind calendar-kind-planting"></i>Plantio</span>
+          <span><i class="calendar-kind calendar-kind-soil"></i>Solo</span>
+          <span><i class="calendar-kind calendar-kind-monitoring"></i>Monitoramento</span>
+        </div>
+      </main>
+
+      <aside
+        id="farm-sheet"
+        class="sheet"
+        role="dialog"
+        aria-labelledby="sheet-title"
+        aria-describedby="sheet-description"
+        aria-modal="false"
+        data-snap="peek"
+        data-context="none"
+        data-mode="map"
+        data-dragging="false"
+        data-filters-active="0"
+      >
+        <p id="sheet-description" class="sr-only">Quadro de colheita relacionado ao mapa do sítio.</p>
+        <button
+          id="sheet-toggle"
+          class="sheet-header sheet-toggle"
+          type="button"
+          aria-controls="sheet-scroll"
+          aria-expanded="false"
+          aria-label="Abrir quadro de colheita"
+        >
+          <span class="sheet-handle" aria-hidden="true"></span>
+          <span class="sheet-heading">
+            <strong id="sheet-title">Quadro de colheita</strong>
+            <span id="sheet-summary">Carregando cultivos…</span>
+          </span>
+          <svg class="sheet-chevron" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m7 14 5-5 5 5"></path>
+          </svg>
+        </button>
+
+        <div id="sheet-live" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+
+        <div id="sheet-scroll" class="sheet-scroll" inert aria-hidden="true">
+          <div id="map-sheet-content">
+          <section id="species-detail" class="context-panel species-detail" aria-live="polite" hidden></section>
+
+          <section id="soil-panel" class="context-panel soil-panel" aria-labelledby="soil-title" hidden>
+            <div class="section-heading">
+              <div>
+                <p class="section-kicker">Leitura do talhão</p>
+                <h2 id="soil-title">Solo</h2>
+              </div>
+              <button id="close-soil" class="icon-button" type="button" aria-label="Fechar dados do solo">×</button>
+            </div>
+            <div id="soil-content" aria-live="polite"></div>
+          </section>
+
+          <section class="filter-bar" aria-labelledby="filters-title">
+            <div class="section-heading filter-heading">
+              <div>
+                <h2 id="filters-title">Filtros</h2>
+                <span id="filter-count" class="filter-count">Nenhum filtro ativo</span>
+              </div>
+              <button id="clear-filters" class="text-button" type="button" hidden>Limpar</button>
+            </div>
+
+            <form id="filters" class="filters-form" autocomplete="off">
+              <div class="filter-primary-row">
+                <button id="search-toggle" class="filter-chip search-toggle" type="button" aria-expanded="false" aria-controls="search-field">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="11" cy="11" r="6.5"></circle>
+                    <path d="m16 16 4 4"></path>
+                  </svg>
+                  Buscar
+                </button>
+
+                <label class="select-chip" for="talhao-filter">
+                  <span class="sr-only">Talhão</span>
+                  <select id="talhao-filter" aria-label="Filtrar por talhão">
+                    <option value="">Talhão: Todos</option>
+                  </select>
+                </label>
+              </div>
+
+              <label id="search-field" class="search-field" for="search-filter" hidden>
+                <span class="sr-only">Buscar por nome ou anotação</span>
+                <span class="input-wrap">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="11" cy="11" r="6.5"></circle>
+                    <path d="m16 16 4 4"></path>
+                  </svg>
+                  <input id="search-filter" type="search" placeholder="Buscar cultivo ou anotação">
+                </span>
+              </label>
+
+              <fieldset class="status-filters">
+                <legend class="sr-only">Estado de produção</legend>
+                <div class="status-chip-row">
+                  <label class="filter-chip"><input type="checkbox" name="status" value="pronta-para-colheita" checked><span class="check-dot status-ready"></span><span>Pronta</span></label>
+                  <label class="filter-chip"><input type="checkbox" name="status" value="frutificando" checked><span class="check-dot status-fruiting"></span><span>Frutificando</span></label>
+                  <label class="filter-chip"><input type="checkbox" name="status" value="colhida-recentemente" checked><span class="check-dot status-harvested"></span><span>Colhida</span></label>
+                  <label class="filter-chip"><input type="checkbox" name="status" value="nao-produzindo" checked><span class="check-dot status-idle"></span><span>Sem produção</span></label>
+                  <label class="filter-chip"><input type="checkbox" name="status" value="outro" checked><span class="check-dot status-other"></span><span>Outros</span></label>
+                </div>
+              </fieldset>
+            </form>
+          </section>
+
+          <section class="harvest-section" aria-labelledby="harvest-title">
+            <div class="section-heading board-heading">
+              <div>
+                <p class="section-kicker">Agenda do campo</p>
+                <h2 id="harvest-title">Quadro de colheita</h2>
+              </div>
+              <output id="result-count" class="result-count" aria-live="polite">0 cultivos</output>
+            </div>
+            <div id="harvest-board"></div>
+          </section>
+          </div>
+
+          <section id="calendar-sheet-content" class="calendar-sheet-content" hidden>
+            <div id="calendar-day-detail" aria-live="polite"></div>
+          </section>
+        </div>
+      </aside>
+    </div>
+
+    <noscript>Este painel precisa de JavaScript para exibir o mapa e os cultivos.</noscript>
+    <script src="https://unpkg.com/maplibre-gl@5.7.1/dist/maplibre-gl.js"></script>
+    <script src="data.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
