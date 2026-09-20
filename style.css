@@ -232,10 +232,11 @@
     top: calc(var(--safe-top) + var(--space-3));
     left: calc(var(--safe-left) + var(--space-3));
     display: grid;
-    grid-template-columns: 38px minmax(0, 1fr) 44px;
+    grid-template-columns: 38px minmax(0, 1fr);
     grid-template-rows: auto auto;
     align-items: center;
-    max-width: min(318px, calc(100vw - var(--safe-left) - var(--safe-right) - 76px));
+    width: min(318px, calc(100vw - var(--safe-left) - var(--safe-right) - 132px));
+    max-width: 318px;
     min-height: 54px;
     padding: 7px 11px 7px 7px;
     border: 1px solid rgba(237, 240, 223, 0.2);
@@ -317,20 +318,26 @@
   }
 
   .view-toggle {
-    display: grid;
-    grid-column: 3;
-    grid-row: 1 / 3;
-    width: 44px;
-    height: 44px;
-    padding: 0;
-    place-items: center;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 44px;
+    padding: 0 14px;
     border: 1px solid rgba(141, 175, 118, 0.42);
-    border-radius: 12px;
+    border-radius: 999px;
     color: var(--leaf);
-    background: rgba(141, 175, 118, 0.08);
+    background: rgba(12, 23, 17, 0.94);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.3);
     cursor: pointer;
     touch-action: manipulation;
     transition: color 120ms ease, background-color 120ms ease, transform 90ms ease;
+  }
+
+  .view-switch {
+    position: absolute;
+    z-index: calc(var(--z-map-chrome) + 1);
+    top: calc(var(--safe-top) + 12px);
+    right: calc(var(--safe-right) + 12px);
   }
 
   .view-toggle:hover {
@@ -343,13 +350,25 @@
   }
 
   .view-toggle svg {
-    width: 22px;
-    height: 22px;
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
     fill: none;
     stroke: currentColor;
     stroke-linecap: round;
     stroke-linejoin: round;
     stroke-width: 1.7;
+  }
+
+  .view-toggle-label {
+    font-size: 0.76rem;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .dashboard-shell[data-view="map"] .view-toggle-label-map,
+  .dashboard-shell[data-view="calendar"] .view-toggle-label-calendar {
+    display: none;
   }
 
   .map-legend {
@@ -443,8 +462,9 @@
   .status-other { color: var(--other); background: var(--other); }
 
   .maplibregl-ctrl-top-right {
-    top: calc(var(--safe-top) + var(--space-2)) !important;
-    right: calc(var(--safe-right) + var(--space-2)) !important;
+    top: calc(var(--safe-top) + 78px) !important;
+    right: auto !important;
+    left: calc(var(--safe-left) + var(--space-3)) !important;
   }
 
   .maplibregl-ctrl-bottom-right {
@@ -1285,7 +1305,7 @@
 
   .calendar-header {
     min-width: 0;
-    padding: 0 var(--space-1);
+    padding: 0 calc(110px + var(--safe-right)) 0 var(--space-1);
   }
 
   .calendar-heading h2,
@@ -1912,7 +1932,28 @@
     .map-brand {
       top: var(--space-4);
       left: var(--space-4);
-      max-width: 350px;
+      width: 318px;
+      max-width: 318px;
+    }
+
+    .view-switch {
+      top: var(--space-4);
+      right: calc(var(--dock-w) + var(--space-4));
+    }
+
+    .view-toggle {
+      min-height: 46px;
+      padding-right: var(--space-4);
+      padding-left: var(--space-4);
+    }
+
+    .maplibregl-ctrl-top-right {
+      top: 86px !important;
+      left: var(--space-4) !important;
+    }
+
+    .calendar-header {
+      padding-right: 130px;
     }
 
     .calendar-heading h2 {
@@ -1991,7 +2032,8 @@
   @supports (backdrop-filter: blur(1px)) {
     .map-brand,
     .map-legend,
-    .sheet-header {
+    .sheet-header,
+    .view-toggle {
       background: rgba(12, 23, 17, 0.82);
       backdrop-filter: blur(14px) saturate(115%);
     }

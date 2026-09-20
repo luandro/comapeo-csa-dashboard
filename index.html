@@ -27,6 +27,9 @@
           <time id="generated-at" class="generated-badge" aria-label="Data de atualização">
             Carregando dados…
           </time>
+        </header>
+
+        <div class="view-switch">
           <button id="view-toggle" class="view-toggle" type="button" aria-label="Abrir Diário do campo">
             <svg class="view-toggle-calendar" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M6 3v3M18 3v3M4 8h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"></path>
@@ -36,8 +39,10 @@
               <path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6Z"></path>
               <path d="M9 3v15M15 6v15"></path>
             </svg>
+            <span class="view-toggle-label view-toggle-label-calendar">Diário</span>
+            <span class="view-toggle-label view-toggle-label-map">Mapa</span>
           </button>
-        </header>
+        </div>
 
       <main id="map-view" class="map-region primary-view" aria-label="Mapa dos talhões e cultivos">
         <div id="map" class="map-canvas"></div>
