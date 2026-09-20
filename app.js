@@ -40,6 +40,7 @@
   var primaryView = "map";
   var sheetMode = "map";
   var calendarIndex = null;
+  var activeProjections = [];
 
   var root = document.documentElement;
   var mapRegion = document.getElementById("map-view");
@@ -74,6 +75,18 @@
   var calendarDays = document.getElementById("calendar-days");
   var calendarHarvestTotal = document.getElementById("calendar-harvest-total");
   var calendarObservationTotal = document.getElementById("calendar-observation-total");
+  var upcomingSections = [
+    document.getElementById("upcoming-harvests"),
+    document.getElementById("calendar-upcoming-harvests")
+  ];
+  var upcomingCounts = [
+    document.getElementById("upcoming-harvests-count"),
+    document.getElementById("calendar-upcoming-harvests-count")
+  ];
+  var upcomingLists = [
+    document.getElementById("upcoming-harvests-list"),
+    document.getElementById("calendar-upcoming-harvests-list")
+  ];
   var desktopMedia = window.matchMedia(DESKTOP_QUERY);
   var reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
@@ -170,6 +183,12 @@
     return new Date(Date.UTC(values[0], values[1] - 1, values[2]));
   }
 
+  function isCalendarDateKey(value) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return false;
+    var date = utcDateFromKey(value);
+    return !Number.isNaN(date.getTime()) && dateKeyFromUtc(date) === value;
+  }
+
   function calendarCategoryLabel(categoryId) {
     var known = {
       solo: "Amostra de solo",
@@ -208,11 +227,25 @@
 
   function buildCalendarIndex() {
     var eventsByDay = Object.create(null);
+    var projectionsByDay = Object.create(null);
     var summaryByMonth = Object.create(null);
     var validCount = 0;
     var invalidCount = 0;
 
-    data.species.forEach(function (item) { speciesById[item.docId] = item; });
+    data.species.forEach(function (item) {
+      speciesById[item.docId] = item;
+      if (!item.projectionActive || !isCalendarDateKey(item.projectedHarvest)) return;
+      if (!projectionsByDay[item.projectedHarvest]) projectionsByDay[item.projectedHarvest] = [];
+      projectionsByDay[item.projectedHarvest].push(item);
+    });
+    activeProjections = data.species.filter(function (item) {
+      return item.projectionActive && isCalendarDateKey(item.projectedHarvest);
+    }).sort(function (a, b) {
+      return a.projectedHarvest.localeCompare(b.projectedHarvest) || a.name.localeCompare(b.name, "pt-BR");
+    });
+    Object.keys(projectionsByDay).forEach(function (dateKey) {
+      projectionsByDay[dateKey].sort(function (a, b) { return a.name.localeCompare(b.name, "pt-BR"); });
+    });
     data.observations.forEach(function (observation) {
       var dateKey = farmDateKey(observation.createdAt);
       if (!dateKey) {
@@ -262,6 +295,7 @@
     if (invalidCount) console.warn(invalidCount + " observações com data inválida foram ignoradas no diário.");
     calendarIndex = {
       eventsByDay: eventsByDay,
+      projectionsByDay: projectionsByDay,
       summaryByMonth: summaryByMonth,
       dateKeys: Object.keys(eventsByDay).sort(),
       validCount: validCount,
@@ -326,6 +360,44 @@
       .format(utcDateFromKey(dateKey));
   }
 
+  function projectionDaysFromToday(dateKey) {
+    var millisecondsPerDay = 24 * 60 * 60 * 1000;
+    var difference = utcDateFromKey(dateKey).getTime() - utcDateFromKey(farmTodayKey()).getTime();
+    return Math.max(0, Math.round(difference / millisecondsPerDay));
+  }
+
+  function projectionCountdown(dateKey) {
+    var days = projectionDaysFromToday(dateKey);
+    if (days === 0) return "hoje";
+    if (days === 1) return "amanhã";
+    return "em " + days + " dias";
+  }
+
+  function formatHarvestDays(value) {
+    if (!Number.isFinite(Number(value))) return "—";
+    return new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 }).format(Number(value));
+  }
+
+  function upcomingProjectionHtml(item) {
+    return '<li class="upcoming-row"><span class="upcoming-copy"><strong>' + escapeHtml(item.name) +
+      "</strong><small>" + escapeHtml(text(item.talhao, "Talhão não informado")) + "</small></span>" +
+      '<time datetime="' + escapeHtml(item.projectedHarvest) + '">' +
+      escapeHtml(formatCalendarDate(item.projectedHarvest, { day: "2-digit", month: "2-digit" })) + "</time>" +
+      '<span class="upcoming-badge">' + escapeHtml(projectionCountdown(item.projectedHarvest)) + "</span></li>";
+  }
+
+  function renderUpcomingHarvests() {
+    var empty = activeProjections.length === 0;
+    var rows = empty ? "" : activeProjections.map(upcomingProjectionHtml).join("");
+    var countLabel = activeProjections.length + " " + (activeProjections.length === 1 ? "prevista" : "previstas");
+    upcomingSections.forEach(function (section) {
+      section.hidden = empty;
+      section.setAttribute("aria-hidden", String(empty));
+    });
+    upcomingCounts.forEach(function (count) { count.textContent = countLabel; });
+    upcomingLists.forEach(function (list) { list.innerHTML = rows; });
+  }
+
   function calendarTimeLabel(value) {
     var date = new Date(value);
     if (Number.isNaN(date.getTime())) return "—";
@@ -350,20 +422,27 @@
     return dominant;
   }
 
-  function calendarDayAriaLabel(dateKey, events, dominant) {
+  function calendarDayAriaLabel(dateKey, events, dominant, projections) {
     var label = formatCalendarDate(dateKey, { day: "numeric", month: "long", year: "numeric" });
     if (dateKey === farmTodayKey()) label += ", hoje";
-    if (!events.length) return label + ", sem atividade registrada";
-    var counts = calendarCounts(events);
-    label += ", " + plural(events.length, "registro", "registros");
-    label += ", " + plural(counts.harvest, "colheita", "colheitas");
-    label += ", categoria dominante " + CALENDAR_KIND_LABELS[dominant];
+    if (!events.length) {
+      label += ", sem atividade registrada";
+    } else {
+      var counts = calendarCounts(events);
+      label += ", " + plural(events.length, "registro", "registros");
+      label += ", " + plural(counts.harvest, "colheita", "colheitas");
+      label += ", categoria dominante " + CALENDAR_KIND_LABELS[dominant];
+    }
+    if (projections.length) {
+      label += ", colheita prevista de " + projections.map(function (item) { return item.name; }).join(", ");
+    }
     return label;
   }
 
   function renderCalendarDayCell(year, month, day) {
     var dateKey = dateKeyFromUtc(new Date(Date.UTC(year, month, day)));
     var events = calendarIndex.eventsByDay[dateKey] || [];
+    var projections = calendarIndex.projectionsByDay[dateKey] || [];
     var counts = calendarCounts(events);
     var dominant = dominantCalendarKind(counts);
     var selected = dateKey === calendarState.selectedDate;
@@ -376,10 +455,11 @@
     if (counts.harvest) classes.push("has-harvest");
     var indicator = dominant ? '<span class="calendar-day-indicator kind-' + dominant + '" style="--kind-color: var(--calendar-' + dominant + ')" aria-hidden="true"></span>' : "";
     var badge = counts.harvest ? '<span class="calendar-harvest-badge" aria-hidden="true">' + counts.harvest + "</span>" : "";
+    var projectedMarker = projections.length ? '<span class="calendar-projected-marker" aria-hidden="true"></span>' : "";
     return '<td role="gridcell"><button class="' + classes.join(" ") + '" type="button" data-date="' + dateKey +
       '" tabindex="' + (dateKey === calendarState.focusedDate ? "0" : "-1") + '" aria-selected="' + (selected ? "true" : "false") +
-      '" aria-label="' + escapeHtml(calendarDayAriaLabel(dateKey, events, dominant)) + '">' +
-      '<span class="calendar-day-number" aria-hidden="true">' + day + "</span>" + badge + indicator + "</button></td>";
+      '" aria-label="' + escapeHtml(calendarDayAriaLabel(dateKey, events, dominant, projections)) + '">' +
+      '<span class="calendar-day-number" aria-hidden="true">' + day + "</span>" + badge + projectedMarker + indicator + "</button></td>";
   }
 
   function updateMonthSummary() {
@@ -453,6 +533,7 @@
     var harvests = calendarCounts(events).harvest;
     sheetTitle.textContent = formatCalendarDate(dateKey, { day: "numeric", month: "long" });
     sheetSummary.textContent = plural(events.length, "registro", "registros") + " · " + plural(harvests, "colheita", "colheitas");
+    sheetSummary.removeAttribute("aria-label");
   }
 
   function calendarEventIcon(event) {
@@ -476,15 +557,31 @@
       "<h3>" + escapeHtml(event.displayName) + "</h3>" + quantityHtml + notesHtml + "</div></li>";
   }
 
+  function projectedHarvestCardHtml(item) {
+    var plantingDate = item.plantingDate ? formatCalendarDate(item.plantingDate, {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric"
+    }) : text(item.plantingDateRaw, "data não informada");
+    return '<article class="calendar-projection-card"><div class="calendar-projection-heading">' +
+      '<span class="projected-chip">Previsto</span><h3>Previsto — ' + escapeHtml(item.name) + "</h3></div>" +
+      '<p class="calendar-projection-location">' + escapeHtml(text(item.talhao, "Talhão não informado")) + "</p>" +
+      '<p class="calendar-projection-meta">Plantado <time datetime="' + escapeHtml(item.plantingDate || "") + '">' +
+      escapeHtml(plantingDate) + "</time> · " + escapeHtml(formatHarvestDays(item.harvestDays)) + " dias</p></article>";
+  }
+
   function renderDayDetail(dateKey) {
     var events = calendarIndex.eventsByDay[dateKey] || [];
+    var projections = calendarIndex.projectionsByDay[dateKey] || [];
+    var projectionsHtml = projections.length ? '<section class="calendar-projections" aria-label="Colheitas previstas para este dia">' +
+      '<h2 class="sr-only">Colheitas previstas</h2>' + projections.map(projectedHarvestCardHtml).join("") + "</section>" : "";
     updateCalendarSheetHeader(dateKey);
     if (!events.length) {
-      calendarDayDetail.innerHTML = '<div class="calendar-empty-day"><strong>Nenhuma atividade registrada neste dia.</strong>' +
+      calendarDayDetail.innerHTML = projectionsHtml + '<div class="calendar-empty-day"><strong>Nenhuma atividade registrada neste dia.</strong>' +
         "<p>O diário mostra somente registros feitos no campo.</p></div>";
       return;
     }
-    calendarDayDetail.innerHTML = '<header class="calendar-day-detail-header"><h2>Linha do tempo</h2><p>' +
+    calendarDayDetail.innerHTML = projectionsHtml + '<header class="calendar-day-detail-header"><h2>Linha do tempo</h2><p>' +
       escapeHtml(plural(events.length, "atividade em ordem cronológica", "atividades em ordem cronológica")) + "</p></header>" +
       '<ol class="calendar-timeline">' + events.map(calendarEventHtml).join("") + "</ol>";
   }
@@ -841,9 +938,20 @@
       return item.productionStatus === "pronta-para-colheita";
     }).length;
     var filters = activeFilterCount();
-    var summary = readyCount + " " + (readyCount === 1 ? "pronto" : "prontos") + " p/ colheita";
-    if (filters) summary += " · " + filters + " " + (filters === 1 ? "filtro ativo" : "filtros ativos");
-    if (sheetMode === "map") sheetSummary.textContent = summary;
+    var readySummary = readyCount + " " + (readyCount === 1 ? "pronto" : "prontos") + " p/ colheita";
+    if (filters) readySummary += " · " + filters + " " + (filters === 1 ? "filtro ativo" : "filtros ativos");
+    if (sheetMode === "map") {
+      if (activeProjections.length) {
+        var next = activeProjections[0];
+        var nextSummary = "Próxima: " + next.name + " " + projectionCountdown(next.projectedHarvest);
+        sheetSummary.innerHTML = '<span class="sheet-summary-primary">' + escapeHtml(nextSummary) + "</span>" +
+          '<span class="sheet-summary-secondary">' + escapeHtml(readySummary) + "</span>";
+        sheetSummary.setAttribute("aria-label", nextSummary + ". " + readySummary);
+      } else {
+        sheetSummary.textContent = readySummary;
+        sheetSummary.removeAttribute("aria-label");
+      }
+    }
     return readyCount;
   }
 
@@ -1676,6 +1784,7 @@
   }
 
   buildCalendarIndex();
+  renderUpcomingHarvests();
   initializeSheet();
   initializeHeaderAndFilters();
   initializeViewSwitcher();

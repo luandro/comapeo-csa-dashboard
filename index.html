@@ -105,6 +105,7 @@
           <span><i class="calendar-kind calendar-kind-planting"></i>Plantio</span>
           <span><i class="calendar-kind calendar-kind-soil"></i>Solo</span>
           <span><i class="calendar-kind calendar-kind-monitoring"></i>Monitoramento</span>
+          <span><i class="calendar-kind calendar-kind-projected"></i>Previsto</span>
         </div>
       </main>
 
@@ -208,6 +209,17 @@
             </form>
           </section>
 
+          <section id="upcoming-harvests" class="upcoming-harvests" aria-labelledby="upcoming-harvests-title" hidden aria-hidden="true">
+            <div class="section-heading upcoming-heading">
+              <div>
+                <p class="section-kicker">Planejamento</p>
+                <h2 id="upcoming-harvests-title">Próximas colheitas</h2>
+              </div>
+              <output id="upcoming-harvests-count" class="upcoming-count" aria-live="polite">0 previstas</output>
+            </div>
+            <ol id="upcoming-harvests-list" class="upcoming-list"></ol>
+          </section>
+
           <section class="harvest-section" aria-labelledby="harvest-title">
             <div class="section-heading board-heading">
               <div>
@@ -221,6 +233,16 @@
           </div>
 
           <section id="calendar-sheet-content" class="calendar-sheet-content" hidden>
+            <section id="calendar-upcoming-harvests" class="upcoming-harvests" aria-labelledby="calendar-upcoming-harvests-title" hidden aria-hidden="true">
+              <div class="section-heading upcoming-heading">
+                <div>
+                  <p class="section-kicker">Planejamento</p>
+                  <h2 id="calendar-upcoming-harvests-title">Próximas colheitas</h2>
+                </div>
+                <output id="calendar-upcoming-harvests-count" class="upcoming-count" aria-live="polite">0 previstas</output>
+              </div>
+              <ol id="calendar-upcoming-harvests-list" class="upcoming-list"></ol>
+            </section>
             <div id="calendar-day-detail" aria-live="polite"></div>
           </section>
         </div>

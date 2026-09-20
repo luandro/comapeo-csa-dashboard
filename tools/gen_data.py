@@ -6,8 +6,9 @@ from __future__ import annotations
 import json
 import math
 import re
+import unicodedata
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any, Iterable
@@ -21,6 +22,32 @@ OUTPUT_PATH = DASHBOARD_DIR / "data.js"
 OBSERVATIONS_PREFIX = "Observations:"
 PLOT_NAME_RE = re.compile(r"^A\d+", re.IGNORECASE)
 BOUNDARY_NAME = "PERIMETRO DO SÍTIO"
+PT_BR_MONTHS = {
+    "jan": 1,
+    "janeiro": 1,
+    "fev": 2,
+    "fevereiro": 2,
+    "mar": 3,
+    "marco": 3,
+    "abr": 4,
+    "abril": 4,
+    "mai": 5,
+    "maio": 5,
+    "jun": 6,
+    "junho": 6,
+    "jul": 7,
+    "julho": 7,
+    "ago": 8,
+    "agosto": 8,
+    "set": 9,
+    "setembro": 9,
+    "out": 10,
+    "outubro": 10,
+    "nov": 11,
+    "novembro": 11,
+    "dez": 12,
+    "dezembro": 12,
+}
 
 
 def read_observations(path: Path) -> list[dict[str, Any]]:
@@ -45,6 +72,50 @@ def finite_number(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return number if math.isfinite(number) else None
+
+
+def parse_planting_date(raw: Any) -> date | None:
+    if raw is None or not str(raw).strip():
+        return None
+    value = " ".join(str(raw).strip().split())
+
+    full_date = re.fullmatch(r"(\d{2})/(\d{2})/(\d{4})", value)
+    if full_date:
+        day, month, year = (int(part) for part in full_date.groups())
+        try:
+            return date(year, month, day)
+        except ValueError:
+            return None
+
+    month_year = re.fullmatch(r"(\d{1,2})/(\d{4})", value)
+    if month_year:
+        month, year = (int(part) for part in month_year.groups())
+        try:
+            return date(year, month, 15)
+        except ValueError:
+            return None
+
+    named_month = re.fullmatch(r"([^/]+)/\s*(\d{4})", value)
+    if not named_month:
+        return None
+    month_name = "".join(
+        character
+        for character in unicodedata.normalize("NFD", named_month.group(1))
+        if unicodedata.category(character) != "Mn"
+    ).lower().rstrip(".")
+    month = PT_BR_MONTHS.get(month_name)
+    if month is None:
+        return None
+    return date(int(named_month.group(2)), month, 15)
+
+
+def parse_harvest_days(raw: Any) -> float | None:
+    value = finite_number(raw)
+    return value if value is not None and value >= 0 else None
+
+
+def round_half_up_days(value: float) -> int:
+    return int(Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 def parseQuantity(raw: Any) -> dict[str, Any]:
@@ -214,7 +285,9 @@ def first_nonempty(mapping: dict[str, Any], *keys: str) -> Any:
 def build_records(
     raw_observations: Iterable[dict[str, Any]],
     plots: list[dict[str, Any]],
+    generation_date: date | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    generation_date = generation_date or datetime.now(timezone.utc).date()
     species: list[dict[str, Any]] = []
     observations: list[dict[str, Any]] = []
     located: list[dict[str, Any]] = []
@@ -264,6 +337,31 @@ def build_records(
         )
         quantity = tags.get("quantity")
         parsed_quantity = parseQuantity(quantity)
+        planting_date_raw_value = tags.get("data-de-plantio")
+        planting_date_raw = (
+            str(planting_date_raw_value)
+            if planting_date_raw_value is not None
+            and str(planting_date_raw_value).strip()
+            else None
+        )
+        planting_date = parse_planting_date(planting_date_raw)
+        harvest_days = parse_harvest_days(tags.get("tempo-de-colheita"))
+        projected_harvest = (
+            planting_date + timedelta(days=round_half_up_days(harvest_days))
+            if planting_date is not None and harvest_days is not None
+            else None
+        )
+        management_status = tags.get("management-status")
+        projection_active = (
+            projected_harvest is not None
+            and projected_harvest > generation_date
+            and management_status != "colhida"
+        )
+        cycle_fulfilled = (
+            projected_harvest is not None
+            and projected_harvest <= generation_date
+            and management_status == "colhida"
+        )
 
         species.append(
             {
@@ -275,7 +373,16 @@ def build_records(
                 "productionStatus": tags.get("production-status"),
                 "developmentStatus": tags.get("development-status"),
                 "healthStatus": tags.get("health-status"),
-                "managementStatus": tags.get("management-status"),
+                "managementStatus": management_status,
+                "plantingDate": planting_date.isoformat() if planting_date else None,
+                "plantingDateRaw": planting_date_raw,
+                "harvestDays": harvest_days,
+                "projectedHarvest": (
+                    projected_harvest.isoformat() if projected_harvest else None
+                ),
+                "projectionSource": "registro" if projected_harvest else None,
+                "projectionActive": projection_active,
+                "cycleFulfilled": cycle_fulfilled,
                 "quantity": quantity,
                 "quantityKg": parsed_quantity["totalKg"],
                 "quantityParts": parsed_quantity["parts"],
@@ -353,15 +460,18 @@ def build_soil(
 
 
 def main() -> None:
+    generated_at = datetime.now(timezone.utc)
     raw_observations = read_observations(OBSERVATIONS_PATH)
     plots, boundary = read_features()
     if boundary is None:
         raise ValueError(f"Talhão de perímetro {BOUNDARY_NAME!r} não encontrado")
 
-    species, observations, located = build_records(raw_observations, plots)
+    species, observations, located = build_records(
+        raw_observations, plots, generated_at.date()
+    )
     soil = build_soil(plots, located)
     payload = {
-        "generatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "generatedAt": generated_at.isoformat().replace("+00:00", "Z"),
         "species": species,
         "observations": observations,
         "talhoes": plots,
@@ -384,6 +494,14 @@ def main() -> None:
     print(f"Talhões: {len(plots)}")
     print(f"Perímetro: {'sim' if boundary else 'não'}")
     print(f"Talhões com dados de solo: {soil_with_values}/{len(soil)}")
+    print(
+        "Projeções ativas: "
+        + str(sum(1 for item in species if item["projectionActive"]))
+    )
+    print(
+        "Ciclos cumpridos: "
+        + str(sum(1 for item in species if item["cycleFulfilled"]))
+    )
     print(f"Arquivo gerado: {OUTPUT_PATH}")
 
 
