@@ -10,6 +10,7 @@ ENV_FILE="$REPO_ROOT/.env"
 SERVER_OVERRIDE=""
 TOKEN_OVERRIDE=""
 PROJECT_OVERRIDE=""
+SKIP_ZIP=0
 
 usage() {
   cat <<'EOF'
@@ -21,6 +22,7 @@ Opções:
   -s, --server-url URL       Sobrescreve SERVER_URL
   -t, --server-token TOKEN   Sobrescreve SERVER_BEARER_TOKEN
   -p, --project-id ID        Sobrescreve PROJECT_ID
+  -z, --no-zip               Não mescla exports do app CoMapeo (.zip)
   -h, --help                 Mostra esta ajuda
 
 Por padrão, as credenciais são lidas de .env na raiz do repositório.
@@ -52,6 +54,10 @@ while (($#)); do
       require_option_value "$1" "${2:-}"
       PROJECT_OVERRIDE="$2"
       shift 2
+      ;;
+    -z|--no-zip)
+      SKIP_ZIP=1
+      shift
       ;;
     -h|--help)
       usage
@@ -217,6 +223,115 @@ if [[ -n "$ATTACHMENT_ROWS" ]]; then
     fi
     ((PHOTO_COUNT += 1))
   done <<< "$ATTACHMENT_ROWS"
+fi
+
+ZIP_MERGED=0
+ZIP_THUMBS=0
+if [[ "$SKIP_ZIP" -eq 0 ]]; then
+  printf 'Verificando exports do app CoMapeo (.zip)…\n'
+  ZIPS=()
+  while IFS= read -r -d '' zipfile; do
+    ZIPS+=("$zipfile")
+  done < <(find "$REPO_ROOT" -maxdepth 1 -name 'CoMapeo_*.zip' -print0 | sort -z)
+  if ((${#ZIPS[@]} == 0)); then
+    printf '  Nenhum export encontrado.\n'
+  else
+    for zipfile in "${ZIPS[@]}"; do
+      printf '  Mesclando %s…\n' "$(basename "$zipfile")"
+    done
+    if ! MERGE_ROWS="$(python3 - data/raw/observations.json data/photos "${ZIPS[@]}" <<'PY'
+import io
+import json
+import sys
+import zipfile
+from pathlib import Path
+
+obs_path = Path(sys.argv[1])
+photos_dir = Path(sys.argv[2])
+zip_paths = sys.argv[3:]
+
+PREFIX = "Observations:"
+raw = obs_path.read_text(encoding="utf-8").lstrip("﻿ \t\r\n")
+if not raw.startswith(PREFIX):
+    raise SystemExit("arquivo de observacoes sem o prefixo esperado")
+payload = json.loads(raw[len(PREFIX):].lstrip())
+observations = payload.get("data", [])
+if not isinstance(observations, list):
+    raise SystemExit("resposta sem lista de observacoes")
+
+known = {o.get("docId") for o in observations if isinstance(o, dict)}
+merged = 0
+invalid = 0
+thumbs = 0
+
+def make_thumb(data, target):
+    from PIL import Image
+    with Image.open(io.BytesIO(data)) as image:
+        image = image.convert("RGB")
+        image.thumbnail((320, 320))
+        image.save(target, "JPEG", quality=75)
+
+for zip_path in zip_paths:
+    with zipfile.ZipFile(zip_path) as zf:
+        geo_name = next((n for n in zf.namelist() if n.endswith(".geojson")), None)
+        if not geo_name:
+            continue
+        try:
+            features = json.loads(zf.read(geo_name)).get("features", [])
+        except (ValueError, KeyError):
+            continue
+        by_name = {n.rsplit("/", 1)[-1]: n for n in zf.namelist() if "_Media_" in n}
+        for feature in features:
+            if not isinstance(feature, dict):
+                continue
+            core = feature.get("$comapeo")
+            props = feature.get("properties") or {}
+            doc_id = (core or {}).get("docId") or props.get("$id")
+            if not isinstance(core, dict) or core.get("schemaName") != "observation":
+                invalid += 1
+                continue
+            if not doc_id or doc_id in known:
+                continue
+            lat, lon = core.get("lat"), core.get("lon")
+            tags = core.get("tags")
+            if not isinstance(lat, (int, float)) or not isinstance(lon, (int, float)) or lat == 0 or lon == 0:
+                invalid += 1
+                continue
+            if not isinstance(tags, dict):
+                invalid += 1
+                continue
+            record = dict(core)
+            record["docId"] = doc_id
+            record["source"] = "zip-export"
+            observations.append(record)
+            known.add(doc_id)
+            merged += 1
+            for index, attachment in enumerate(record.get("attachments") or []):
+                if not isinstance(attachment, dict) or attachment.get("type") != "photo":
+                    continue
+                name = str(attachment.get("name") or "")
+                member = next((v for k, v in by_name.items() if k.startswith(name + "_original.")), None)
+                if not member:
+                    continue
+                target = photos_dir / f"{doc_id[:12]}_{index}.jpg"
+                if target.exists():
+                    continue
+                try:
+                    make_thumb(zf.read(member), target)
+                    thumbs += 1
+                except Exception:
+                    continue
+
+obs_path.write_text(PREFIX + "\n" + json.dumps({"data": observations}, ensure_ascii=False), encoding="utf-8")
+print(f"{merged}\t{thumbs}\t{invalid}")
+PY
+)"; then
+      printf 'Erro: nao foi possivel mesclar os exports .zip (formato incompativel).\n' >&2
+      exit 1
+    fi
+    IFS=$'\t' read -r ZIP_MERGED ZIP_THUMBS ZIP_INVALID <<< "$MERGE_ROWS"
+    printf '  Mesclados do export: %s (invalidos ignorados: %s, miniaturas: %s)\n' "$ZIP_MERGED" "$ZIP_INVALID" "$ZIP_THUMBS"
+  fi
 fi
 
 python3 tools/gen_data.py

@@ -16,3 +16,7 @@ __pycache__/
 node_modules/
 .sj/
 graft/
+
+# CoMapeo app exports (private farm data + media)
+*.zip
+CoMapeo_*
